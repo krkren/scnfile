@@ -177,3 +177,10 @@ compiler/   SceneParser and its defaults (TJS)
 docs/       format, rules, settings
 tests/      round trips, compiled sample scenes
 ```
+
+## License
+
+[0BSD](LICENSE): use it for anything, with no conditions and no notice to include. The libraries the
+plugin will build in keep their own licenses: Monocypher (CC0 or BSD-2-Clause), zlib (zlib license), and
+tp_stub and ncbind (Kirikiri Z's BSD-3-Clause, which a game already meets by shipping the engine's
+license).
