@@ -102,8 +102,10 @@ For each script listed in `!scnlist.txt`:
    `env.onStore()` at each save point.
 3. Split the script at labels into scenes, turn choice and jump endings into `nexts`, and collect
    speakers, text and voices.
-4. Save the result with `SCNFile.save`, and update `setup/sceneparser/depend.txt` so only changed
-   scripts recompile.
+4. Save the result, and update `setup/sceneparser/depend.txt` so only changed scripts recompile. At
+   first the compiler writes `<script>.scn.json` with the json plugin, which every kagex build already
+   has; once the library exists it writes `.scn` with `SCNFile.save`, keeping JSON as an option for
+   debugging. Screen states are stored as plain dictionaries, which the player already accepts.
 
 **Output** (what KAGEnvPlayer reads):
 
@@ -126,8 +128,11 @@ World doesn't manage, `[iscript]` blocks) stay as steps.
 
 **In the framework**
 
-- `KAGEnvPlayer.tjs` links the scnfile plugin and uses `SCNFile` when it's there, `PSBFile` otherwise,
-  and the existing "scene playback is unavailable" message when neither is.
+- `KAGEnvPlayer.tjs` opens a compiled script as `.scn` with `SCNFile` when the plugin is there
+  (`PSBFile` otherwise), and as `.scn.json` with `Scripts.evalJSONStorage` when there's no `.scn`. The
+  JSON path works on every current build with no new plugin, so the compiler and player can be built
+  and tested before the library exists. It's for development only: JSON is plain text and slower to
+  load.
 - The template ships the compiler and default `parsermacro.ks` and `parseroption.txt`.
 - The sample plays its demos compiled, and `tools/smoketest.py` covers that.
 - `doc/` describes compiling, the settings and the rules.
@@ -162,9 +167,11 @@ repository). On each build it:
 
 ## Milestones
 
-1. **Library, plain PSB:** read and write every TJS type, with round-trip tests; Linux first.
-2. **Compiler for the sample:** text, names, voices, labels, choices and World tags; the sample plays
-   compiled; the smoke test covers it.
+1. **Compiler to JSON:** text, names, voices, labels, choices and World tags, written as
+   `.scn.json`; KAGEX's player reads JSON; the sample plays its demos compiled and the smoke test covers
+   it. No plugin needed.
+2. **Library, plain PSB:** read and write every TJS type, with round-trip tests, Linux first; the
+   compiler switches its output to `.scn`.
 3. **Encryption:** the encrypted container, the key slot and the kagex-release step.
 4. **Every platform:** CI builds for Windows, Linux, macOS, the web, Android and iOS; release packages.
 5. **Features on top:** jump to line, scene replay, dialogue search and rollback in the sample's UI.
