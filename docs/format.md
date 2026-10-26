@@ -144,8 +144,8 @@ plugin whose slot is all 0 has no key, and reads plain files only.
 
 The key is in the game, as any key a game uses to read its own files has to be. The slot keeps
 the scenario files from being read with a text editor or a PSB viewer; taking the key out of
-the plugin is work, but not hard work. Making it harder (the key in pieces, a key per file) is
-planned with KAGEX's encrypted archives.
+the plugin is work, but not hard work. scnfile encrypts compiled scenarios and nothing else:
+encrypted game archives are a separate project (krkren/xp3crypt), with a key of their own.
 
 ## Limits
 
