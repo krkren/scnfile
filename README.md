@@ -8,9 +8,10 @@ each one into an encrypted `.scn` file (a PSB) and ships only those, so the read
 leave the developer's machine. In the game, this plugin decrypts and reads the `.scn` files, and
 KAGEX's scene player plays them.
 
-scnfile does PSB and the decryption of `.scn` files, and nothing else. The compiler and the scene
-player are TJS in KAGEX (`template/system/SceneParser.tjs` and `KAGEnvPlayer.tjs`, described in its
-`doc/scn.txt`); encrypted game archives are [xp3crypt](https://github.com/krkren/xp3crypt)'s.
+scnfile does PSB and the decryption of `.scn` files, plus one tool the other way: scn2ks turns a
+compiled scenario back into a `.ks` script. The compiler and the scene player are TJS in KAGEX
+(`template/system/SceneParser.tjs` and `KAGEnvPlayer.tjs`, described in its `doc/scn.txt`); encrypted
+game archives are [xp3crypt](https://github.com/krkren/xp3crypt)'s.
 
 ## Name and ground rules
 
@@ -46,6 +47,42 @@ player:        .scn ──► scnfile decrypts and parses it ──► SCNFile.r
   zlib-compressed PSB, encrypted with XChaCha20-Poly1305 using [Monocypher](https://monocypher.org/).
   Its tag also refuses corrupted or edited files. The same file and key always encrypt to the same
   bytes, so an unchanged scenario doesn't show up in a patch.
+
+## scn2ks: back to a script
+
+`scn2ks` reads a compiled scenario as JSON, the `<script>.scn.json` KAGEX's compiler writes without
+the plugin (or with `format=json` in `parseroption.txt`), and writes a `.ks` script that compiles back
+to the same scenes: the same texts, names, voices, waits, steps, save points, choices and jumps. A
+plain `.scn` holds the same tree and is read too; an encrypted one isn't.
+
+```
+scn2ks char.ks.scn.json              # writes char.ks
+scn2ks --linemode=vn in.json out.ks
+```
+
+It writes the texts the way the line mode in force puts messages together (`【name/display】`, line
+breaks, empty lines, `[l]`, `[p]`, `[r]`, `[ruby]`), the steps as tags, `[if]` blocks, `[iscript]`
+blocks, `&` entities and `cond=`, and the choices and jumps that end each scene. The line mode comes
+from the `[linemode]` steps in the file; the one the script starts in is worked out from its texts
+(`--linemode=` sets it: a script compiled with `parseroption.txt`'s `linemode=` starts in that one).
+
+To get that right it models the compiler's own rules (the line modes, names, the waits it adds at
+line ends, voice counters, the state each `[if]` branch starts from), tries each way of writing a
+text or a step, and keeps the first the model compiles to what the file holds. What no way of
+writing it gives exactly (a text ending in `[l]` in page mode, a step that isn't a tag) is written as
+near as it can be, marked in the script with a `; scn2ks:` comment and listed when it runs.
+
+What doesn't come back, because the compiled file doesn't hold it:
+
+- Comments, macros (their tags are written expanded; a step that used `mp` gets a one-line macro,
+  `scn2ks_mp`, with the arguments it had), `[voice]`, `[nextvoice]` and `[parse]` (the voices they
+  gave are given again by `[voice name=N]` where the tags written don't already give them), and the
+  original layout of lines.
+- Line numbers and the source key (`hash`), which come from the script and its settings.
+
+`tests/run_scn2ks_test.py` checks this against KAGEX itself: it compiles KAGEX's sample scripts and
+`tests/scn2ks/` (every line mode) in the engine, turns each back into a script, compiles those, and
+compares the two compiles.
 
 ## TJS API
 
@@ -83,9 +120,12 @@ plugins/scnfile/   the plugin: psb.cpp (the PSB codec), seal.cpp (encrypted file
                    slot) and monocypher/ (Monocypher 4.0.3, unmodified), none of which need the
                    engine, and main.cpp (SCNFile)
 tools/scnseal.cpp  encrypts compiled scenarios and writes a game's key into a plugin
+tools/scn2ks.cpp   turns a compiled scenario back into a script; scnks.cpp is how (no engine
+                   needed)
 docs/format.md     the PSB layout, the encrypted files and the key slot
-tests/             psb_test.cpp and seal_test.cpp (no engine), engine/ and run_engine_test.py
-                   (SCNFile in the engine, with and without a key)
+tests/             psb_test.cpp, seal_test.cpp and scnks_test.cpp (no engine), engine/ and
+                   run_engine_test.py (SCNFile in the engine, with and without a key),
+                   run_scn2ks_test.py and scn2ks/ (scn2ks round trips through KAGEX's compiler)
 ```
 
 `plugins/` is a plugin folder for the engine build (`TVP_PLUGIN_FOLDERS`, listed after krkrz_dev's
@@ -99,13 +139,15 @@ and zlib to read `mdf` (compressed) files and to compress encrypted ones. On Lin
 ```
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKRKRZ_DEV_DIR=/path/to/krkrz_dev
 cmake --build build
-ctest --test-dir build                     # the codec's and the encryption's tests
+ctest --test-dir build                     # the codec's, the encryption's and scn2ks's tests
 python3 tests/run_engine_test.py --engine /path/to/krkrz --plugin build/plugins/scnfile/libscnfile.so \
     --scnseal build/scnseal
+python3 tests/run_scn2ks_test.py --engine /path/to/krkrz --scn2ks build/scn2ks --kagex /path/to/kagex \
+    --plugin build/plugins/scnfile/libscnfile.so
 ```
 
 `-DSCNFILE_SANITIZE=ON` builds the tests with AddressSanitizer and UBSan, and
-`-DSCNFILE_PLUGIN=OFF` builds only them and `scnseal` (no krkrz_dev needed). A game links the plugin as
+`-DSCNFILE_PLUGIN=OFF` builds only them, `scnseal` and `scn2ks` (no krkrz_dev needed). A game links the plugin as
 `plugin/scnfile.dll` (KAGEX does, in `Initialize.tjs`), which the engine finds as
 `plugin/libscnfile.so`.
 

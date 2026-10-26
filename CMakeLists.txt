@@ -45,6 +45,13 @@ endif()
 add_executable(scnseal tools/scnseal.cpp)
 target_link_libraries(scnseal PRIVATE scnfile_core)
 
+# scn2ks: turns a compiled scenario (its JSON, or a plain .scn) back into a script
+add_library(scnfile_scnks STATIC tools/scnks.cpp)
+target_include_directories(scnfile_scnks PUBLIC tools)
+target_link_libraries(scnfile_scnks PUBLIC scnfile_core)
+add_executable(scn2ks tools/scn2ks.cpp)
+target_link_libraries(scn2ks PRIVATE scnfile_scnks)
+
 add_executable(psb_test tests/psb_test.cpp)
 target_link_libraries(psb_test PRIVATE scnfile_core)
 add_test(NAME psb_test COMMAND psb_test)
@@ -52,3 +59,7 @@ add_test(NAME psb_test COMMAND psb_test)
 add_executable(seal_test tests/seal_test.cpp)
 target_link_libraries(seal_test PRIVATE scnfile_core)
 add_test(NAME seal_test COMMAND seal_test)
+
+add_executable(scnks_test tests/scnks_test.cpp)
+target_link_libraries(scnks_test PRIVATE scnfile_scnks)
+add_test(NAME scnks_test COMMAND scnks_test)
