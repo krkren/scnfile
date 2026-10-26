@@ -8,11 +8,12 @@ an encrypted binary `.scn` file and ships only those, so the readable `.ks` file
 developer's machine. In the game, the scnfile plugin decrypts and reads the `.scn` files, and KAGEX's
 scene player plays them.
 
-**Status:** milestones 1 and 2 (below). The compiler lives in KAGEX
+**Status:** milestones 1 and 2 are done, and 3 is under way (below). The compiler lives in KAGEX
 (`template/system/SceneParser.tjs`, with the scene player's changes), since it's TJS that every game
-made from the template carries; this repository has the plugin, which reads and writes plain PSB on
-Linux, and its tests. Encryption, the other platforms and kagex-release's part are still plans. The
-sections below set out the three plans: the library, the compiler, and the changes KAGEX needs.
+made from the template carries; this repository has the plugin, which reads and writes PSB and reads
+encrypted files with the key written into it, `scnseal`, which encrypts files and writes keys, and
+their tests, on Linux so far. The sections below set out the three plans: the library, the compiler,
+and the changes KAGEX needs.
 
 ## Why
 
@@ -181,16 +182,21 @@ repository). On each build it:
    covers it. No plugin needed.
 2. **Library, plain PSB** (done, Linux): read and write every TJS type, with round-trip tests; the
    compiler switches its output to `.scn`.
-3. **Encryption:** the encrypted container, the key slot and the kagex-release step.
+3. **Encryption** (under way): the encrypted container, the key slot and `scnseal` are done; next is
+   the kagex-release step.
 4. **Every platform:** CI builds for Windows, Linux, macOS, the web, Android and iOS; release packages.
 5. **Features on top:** jump to line, scene replay, dialogue search and rollback in the sample's UI.
 
 ## Layout
 
 ```
-plugins/scnfile/   the plugin: psb.cpp (the PSB codec, no engine needed) and main.cpp (SCNFile)
-docs/format.md     the PSB layout as the plugin reads and writes it
-tests/             psb_test.cpp (the codec), engine/ and run_engine_test.py (SCNFile in the engine)
+plugins/scnfile/   the plugin: psb.cpp (the PSB codec), seal.cpp (encrypted files and the key
+                   slot) and monocypher/ (Monocypher 4.0.3, unmodified), none of which need the
+                   engine, and main.cpp (SCNFile)
+tools/scnseal.cpp  encrypts compiled scenarios and writes a game's key into a plugin
+docs/format.md     the PSB layout, the encrypted files and the key slot
+tests/             psb_test.cpp and seal_test.cpp (no engine), engine/ and run_engine_test.py
+                   (SCNFile in the engine, with and without a key)
 ```
 
 `plugins/` is a plugin folder for the engine build (`TVP_PLUGIN_FOLDERS`, listed after krkrz_dev's
@@ -204,12 +210,21 @@ and zlib to read `mdf` (compressed) files. On Linux:
 ```
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKRKRZ_DEV_DIR=/path/to/krkrz_dev
 cmake --build build
-ctest --test-dir build                     # the codec's tests
-python3 tests/run_engine_test.py --engine /path/to/krkrz --plugin build/plugins/scnfile/libscnfile.so
+ctest --test-dir build                     # the codec's and the encryption's tests
+python3 tests/run_engine_test.py --engine /path/to/krkrz --plugin build/plugins/scnfile/libscnfile.so \
+    --scnseal build/scnseal
 ```
 
-`-DSCNFILE_SANITIZE=ON` builds the codec's tests with AddressSanitizer and UBSan, and
-`-DSCNFILE_PLUGIN=OFF` builds only those (no krkrz_dev needed). A game links the plugin as
+By hand, a game's scenarios are encrypted like this (kagex-release will do it in a build):
+
+```
+scnseal keygen game.key                       # once; keep it out of the game's repository
+scnseal seal -k game.key data/scenario/*.scn  # encrypts them where they are
+scnseal setkey -k game.key plugin/libscnfile.so
+```
+
+`-DSCNFILE_SANITIZE=ON` builds the tests with AddressSanitizer and UBSan, and
+`-DSCNFILE_PLUGIN=OFF` builds only them and `scnseal` (no krkrz_dev needed). A game links the plugin as
 `plugin/scnfile.dll` (KAGEX does: `Initialize.tjs`), which the engine finds as `plugin/libscnfile.so`.
 
 ## License

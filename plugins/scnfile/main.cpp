@@ -1,9 +1,12 @@
 // main.cpp - the scnfile plugin: the SCNFile class for TJS
 //
-//   new SCNFile(storageOrOctet)   reads a PSB file (a storage name, or its bytes as an octet)
+//   new SCNFile(storageOrOctet)   reads a PSB file (a storage name, or its bytes as an octet),
+//                                 plain or encrypted with the game's key
 //   .root                         its contents, as Dictionaries, Arrays and plain values
 //   SCNFile.save(value, storage)  writes a value as a plain PSB file
 //   SCNFile.toOctet(value)        the same, as an octet
+//   SCNFile.hasKey                whether this plugin holds a game's key (kagex-release, or
+//                                 tools/scnseal, writes it into the plugin's key slot)
 //
 // Values map to PSB and back as: void <-> null, Integer <-> integer, Real <-> real, String <->
 // string (UTF-8 in the file), Octet <-> resource, Array <-> list, Dictionary <-> object. A PSB
@@ -14,11 +17,33 @@
 
 #include "ncbind.hpp"
 #include "psb.hpp"
+#include "seal.hpp"
 
 #include <string>
 #include <vector>
 
+// The game's key: the marker, then 32 bytes that kagex-release fills in for each game (all 0:
+// no key, so only plain files are read). volatile, so the compiler reads what's in the file
+extern "C" {
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((used))
+#endif
+volatile unsigned char scnfile_key_slot[scnseal::SLOT_SIZE] = {
+	'K', 'S', 'C', 'N', '-', 'K', 'E', 'Y', '-', 'S', 'L', 'O', 'T', '-', 'v', '1',
+};
+}
+
 namespace {
+
+// The key in the slot; false when there's none
+bool slotKey(scnseal::Key &key) {
+	bool any = false;
+	for (size_t k = 0; k < key.size(); k++) {
+		key[k] = scnfile_key_slot[scnseal::SLOT_MARKER_SIZE + k];
+		any = any || key[k] != 0;
+	}
+	return any;
+}
 
 // ------------------------------------------------------------------------
 // Strings: TJS's are UTF-16, PSB's UTF-8
@@ -278,11 +303,35 @@ public:
 	explicit SCNFile(const std::vector<uint8_t> &bytes) {
 		scnpsb::Value tree;
 		try {
-			tree = scnpsb::read(bytes.data(), bytes.size());
-		} catch (const scnpsb::Error &e) {
+			if (scnseal::isSealed(bytes.data(), bytes.size())) {
+				scnseal::Key key;
+				if (!slotKey(key)) {
+					scnseal::wipe(key);
+					throw scnseal::Error("the file is encrypted, and this build has no key to open it");
+				}
+				std::vector<uint8_t> psb;
+				try {
+					psb = scnseal::unseal(bytes.data(), bytes.size(), key);
+				} catch (...) {
+					scnseal::wipe(key);
+					throw;
+				}
+				scnseal::wipe(key);
+				tree = scnpsb::read(psb.data(), psb.size());
+			} else {
+				tree = scnpsb::read(bytes.data(), bytes.size());
+			}
+		} catch (const std::runtime_error &e) {
 			rethrow(e);
 		}
 		root = toVariant(tree);
+	}
+
+	static bool hasKey() {
+		scnseal::Key key;
+		bool any = slotKey(key);
+		scnseal::wipe(key);
+		return any;
 	}
 
 	tTJSVariant getRoot() const { return root; }
@@ -328,4 +377,5 @@ NCB_REGISTER_CLASS(SCNFile) {
 	Property(TJS_W("root"), &Class::getRoot, (int)0);
 	RawCallback(TJS_W("save"), &Class::save, TJS_STATICMEMBER);
 	RawCallback(TJS_W("toOctet"), &Class::toOctet, TJS_STATICMEMBER);
+	Property(TJS_W("hasKey"), &Class::hasKey, (int)0);
 }

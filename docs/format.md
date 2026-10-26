@@ -1,7 +1,7 @@
 # The PSB format, as scnfile reads and writes it
 
 PSB is M2's binary format for a tree of values. This is the layout `plugins/scnfile/psb.cpp`
-implements; `tests/psb_test.cpp` holds files written by hand from this page. It was written from
+implements, and then scnfile's encrypted files around it (below); `tests/psb_test.cpp` holds files written by hand from this page. It was written from
 the format, not from other implementations' code.
 
 All numbers are little-endian. Offsets are from the start of the file.
@@ -105,6 +105,47 @@ values, booleans (TJS has none) or version 4's extra resources.
 
 A file can be zlib-compressed: `mdf\0`, the PSB's size (4 bytes), then the zlib stream. scnfile
 reads these when it's built with zlib, and doesn't write them.
+
+## Encrypted files (KSCN)
+
+scnfile's own format around a PSB, for a game's compiled scenarios (`plugins/scnfile/seal.cpp`;
+`tests/seal_test.cpp`). Little-endian:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 | `KSCN` |
+| 4 | 1 | format version: 1 |
+| 5 | 1 | flags: 1 = the content is zlib-compressed; others are refused |
+| 6 | 2 | 0 |
+| 8 | 4 | the plain PSB's size |
+| 12 | 4 | 0 |
+| 16 | 24 | nonce |
+| 40 | *n* | the content (the PSB, compressed or not), encrypted |
+| 40 + *n* | 16 | the tag |
+
+The cipher is XChaCha20-Poly1305 ([Monocypher](https://monocypher.org)'s `crypto_aead_lock`),
+with the header's first 40 bytes as associated data, so changing any byte of the file, the
+header included, makes it refuse to open.
+
+The game's key (32 bytes) isn't used directly. Two keys come from it through keyed BLAKE2b
+(`crypto_blake2b_keyed`, 32 bytes each, keyed with the game key): the encryption key, of the
+text `scnfile encrypt v1`, and the nonce key, of `scnfile nonce v1`. The nonce is the first 24
+bytes of the nonce key's keyed BLAKE2b of the plain PSB. So encrypting a file again gives the
+same bytes (a build can be compared with the last one), and two different files never share a
+nonce. scnfile compresses with zlib at level 9.
+
+## The key slot
+
+The plugin holds one key slot: the 16 bytes `KSCN-KEY-SLOT-v1`, then 32 bytes that are 0 until
+a game's key is written there (the `scnfile_key_slot` variable in `main.cpp`). kagex-release, or
+`scnseal setkey`, finds the marker in the plugin's file, or in an engine the plugin is linked
+into, and writes the key after it; a file with no slot or with more than one is refused. A
+plugin whose slot is all 0 has no key, and reads plain files only.
+
+The key is in the game, as any key a game uses to read its own files has to be. The slot keeps
+the scenario files from being read with a text editor or a PSB viewer; taking the key out of
+the plugin is work, but not hard work. Making it harder (the key in pieces, a key per file) is
+planned with KAGEX's encrypted archives.
 
 ## Limits
 

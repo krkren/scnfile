@@ -24,17 +24,31 @@ if(SCNFILE_PLUGIN)
     add_subdirectory(plugins/scnfile)
 endif()
 
-# The PSB codec's tests: no engine needed
+# The codec and the encryption, with no engine: scnseal and the tests
 enable_testing()
 find_package(ZLIB)
-add_executable(psb_test tests/psb_test.cpp plugins/scnfile/psb.cpp)
-target_include_directories(psb_test PRIVATE plugins/scnfile)
+add_library(scnfile_core STATIC
+    plugins/scnfile/psb.cpp
+    plugins/scnfile/seal.cpp
+    plugins/scnfile/seal_random.cpp
+    plugins/scnfile/monocypher/monocypher.c)
+target_include_directories(scnfile_core PUBLIC plugins/scnfile)
 if(ZLIB_FOUND)
-    target_compile_definitions(psb_test PRIVATE SCNFILE_HAVE_ZLIB)
-    target_link_libraries(psb_test PRIVATE ZLIB::ZLIB)
+    target_compile_definitions(scnfile_core PUBLIC SCNFILE_HAVE_ZLIB)
+    target_link_libraries(scnfile_core PUBLIC ZLIB::ZLIB)
 endif()
 if(SCNFILE_SANITIZE)
-    target_compile_options(psb_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
-    target_link_options(psb_test PRIVATE -fsanitize=address,undefined)
+    target_compile_options(scnfile_core PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(scnfile_core PUBLIC -fsanitize=address,undefined)
 endif()
+
+add_executable(scnseal tools/scnseal.cpp)
+target_link_libraries(scnseal PRIVATE scnfile_core)
+
+add_executable(psb_test tests/psb_test.cpp)
+target_link_libraries(psb_test PRIVATE scnfile_core)
 add_test(NAME psb_test COMMAND psb_test)
+
+add_executable(seal_test tests/seal_test.cpp)
+target_link_libraries(seal_test PRIVATE scnfile_core)
+add_test(NAME seal_test COMMAND seal_test)

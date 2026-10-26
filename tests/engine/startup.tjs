@@ -1,6 +1,11 @@
 // The scnfile plugin in the engine: tests/run_engine_test.py runs this as a project of its own,
-// with -scnplugin=<the plugin> and a -datapath to write in. Every line it reports starts with
-// "scntest:"; it exits with 0 when everything passed.
+// with -scnplugin=<the plugin>, a -datapath to write in and -scnmode:
+//   plain   the plugin as built (no key): values to files and octets and back, and writes
+//           sealtest.scn for the runner to encrypt
+//   sealed  the plugin with key A written in: a.kscn (sealtest.scn encrypted with A) opens,
+//           b.kscn (with key B) doesn't
+//   nokey   the plugin without a key: a.kscn doesn't open
+// Every line it reports starts with "scntest:"; it exits with 0 when everything passed.
 
 var failures = 0, checks = 0;
 
@@ -17,14 +22,14 @@ function check(cond, what) {
 }
 
 // Whether two values are the same: same types, same contents
-function same(a, b) {
+global.same = function(a, b) {
 	if (typeof a != typeof b) return false;
 	if (typeof a == "Octet") return a == b;
 	if (typeof a != "Object") return a === b;
 	if (a === null || b === null) return a === b;
 	if (a instanceof "Array") {
 		if (!(b instanceof "Array") || a.count != b.count) return false;
-		for (var i = 0; i < a.count; i++) if (!same(a[i], b[i])) return false;
+		for (var i = 0; i < a.count; i++) if (!global.same(a[i], b[i])) return false;
 		return true;
 	}
 	if (b instanceof "Array") return false;
@@ -33,10 +38,10 @@ function same(a, b) {
 	kb.assign(b);
 	if (ka.count != kb.count) return false;
 	for (var i = 0; i < ka.count; i += 2) {
-		if (!same(ka[i + 1], b[ka[i]])) return false;
+		if (!global.same(ka[i + 1], b[ka[i]])) return false;
 	}
 	return true;
-}
+};
 
 function throws(func) {
 	try {
@@ -47,8 +52,14 @@ function throws(func) {
 	return "";
 }
 
+// The value sealtest.scn holds
+function sealValue() {
+	return %[ hash: "1:test", scenes: [ %[ label: "*start", texts: [ [ "ai", void, "暗号化されたテキスト", void, 0x10, %[] ] ] ] ] ];
+}
+
 (function() {
 	var plugin = System.getArgument("-scnplugin");
+	var mode = System.getArgument("-scnmode");
 	try {
 		Plugins.link(plugin);
 	} catch (e) {
@@ -56,6 +67,26 @@ function throws(func) {
 		System.exit(2);
 	}
 	check(typeof global.SCNFile == "Object", "SCNFile is defined");
+
+	if (mode == "sealed") {
+		check(SCNFile.hasKey, "the plugin with a key written in has one");
+		var a = new SCNFile(System.dataPath + "a.kscn");
+		check(global.same(a.root, sealValue()), "a file encrypted with this key opens");
+		check(throws(function() { new SCNFile(System.dataPath + "b.kscn"); }).indexOf("key") >= 0,
+			  "a file encrypted with another key doesn't");
+		check(global.same((new SCNFile(System.dataPath + "sealtest.scn")).root, sealValue()), "plain files still open");
+		report("%d checks, %d failed".sprintf(checks, failures));
+		System.exit(failures ? 1 : 0);
+	}
+	if (mode == "nokey") {
+		check(!SCNFile.hasKey, "the plugin as built has no key");
+		var msg = throws(function() { new SCNFile(System.dataPath + "a.kscn"); });
+		check(msg.indexOf("no key") >= 0, "without a key an encrypted file doesn't open, and says why: " + msg);
+		report("%d checks, %d failed".sprintf(checks, failures));
+		System.exit(failures ? 1 : 0);
+	}
+	check(!SCNFile.hasKey, "the plugin as built has no key");
+	SCNFile.save(sealValue(), System.dataPath + "sealtest.scn");
 
 	var value = %[
 		zero: 0, one: 1, negative: -123456789012, largest: 9223372036854775807, smallest: -9223372036854775807 - 1,
@@ -74,7 +105,7 @@ function throws(func) {
 	SCNFile.save(value, path);
 	check(Storages.isExistentStorage(path), "save writes the file");
 	var file = new SCNFile(path);
-	check(same(file.root, value), "a value saved to a file reads back the same");
+	check(global.same(file.root, value), "a value saved to a file reads back the same");
 	check(typeof file.root.half == "Real" && typeof file.root.one == "Integer", "Integers stay Integers, Reals Reals");
 	check(file.root.negative === -123456789012 && file.root.largest === 9223372036854775807, "64-bit integers");
 	check(typeof file.root.bytes == "Octet" && file.root.bytes.length == 5 && file.root.bytes[4] == 255, "octets");
@@ -85,10 +116,10 @@ function throws(func) {
 	var psb = SCNFile.toOctet(value);
 	check(typeof psb == "Octet" && psb.length > 40, "toOctet gives an octet");
 	check(psb[0] == 0x50 && psb[1] == 0x53 && psb[2] == 0x42 && psb[3] == 0, "it starts with PSB\\0");
-	check(same((new SCNFile(psb)).root, value), "a value made into an octet reads back the same");
+	check(global.same((new SCNFile(psb)).root, value), "a value made into an octet reads back the same");
 
 	// any value as the root
-	check(same((new SCNFile(SCNFile.toOctet([ 1, 2, 3 ]))).root, [ 1, 2, 3 ]), "an Array as the root");
+	check(global.same((new SCNFile(SCNFile.toOctet([ 1, 2, 3 ]))).root, [ 1, 2, 3 ]), "an Array as the root");
 	check((new SCNFile(SCNFile.toOctet("just text"))).root === "just text", "a String as the root");
 
 	// what can't be read or written
@@ -108,7 +139,7 @@ function throws(func) {
 	var t2 = System.getTickCount();
 	var back = (new SCNFile(o)).root;
 	var t3 = System.getTickCount();
-	check(same(back, big), "20000 Dictionaries read back the same");
+	check(global.same(back, big), "20000 Dictionaries read back the same");
 	report("20000 Dictionaries: %d bytes, written in %d ms, read in %d ms".sprintf(o.length, t2 - t, t3 - t2));
 
 	report("%d checks, %d failed".sprintf(checks, failures));

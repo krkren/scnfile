@@ -1,4 +1,4 @@
-# The scnfile plugin. Built by the engine when this folder is in TVP_PLUGIN_FOLDERS (listed
+# The scnfile plugin (Monocypher, in monocypher/, decrypts). Built by the engine when this folder is in TVP_PLUGIN_FOLDERS (listed
 # after krkrz_dev's plugins, whose tp_stub and ncbind it uses), or on its own through the
 # CMakeLists.txt at the top of this repository.
 set(TPSTUB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../tp_stub CACHE PATH "Path to tp_stub directory")
@@ -15,6 +15,8 @@ krkrz_plugin(scnfile NCBIND
     SOURCES
         main.cpp
         psb.cpp
+        seal.cpp
+        monocypher/monocypher.c
     LIBRARIES
         ${SCNFILE_LIBRARIES}
 )
