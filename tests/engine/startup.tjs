@@ -1,0 +1,116 @@
+// The scnfile plugin in the engine: tests/run_engine_test.py runs this as a project of its own,
+// with -scnplugin=<the plugin> and a -datapath to write in. Every line it reports starts with
+// "scntest:"; it exits with 0 when everything passed.
+
+var failures = 0, checks = 0;
+
+function report(msg) {
+	Debug.message("scntest: " + msg);
+}
+
+function check(cond, what) {
+	checks++;
+	if (!cond) {
+		failures++;
+		report("FAIL " + what);
+	}
+}
+
+// Whether two values are the same: same types, same contents
+function same(a, b) {
+	if (typeof a != typeof b) return false;
+	if (typeof a == "Octet") return a == b;
+	if (typeof a != "Object") return a === b;
+	if (a === null || b === null) return a === b;
+	if (a instanceof "Array") {
+		if (!(b instanceof "Array") || a.count != b.count) return false;
+		for (var i = 0; i < a.count; i++) if (!same(a[i], b[i])) return false;
+		return true;
+	}
+	if (b instanceof "Array") return false;
+	var ka = [], kb = [];
+	ka.assign(a);
+	kb.assign(b);
+	if (ka.count != kb.count) return false;
+	for (var i = 0; i < ka.count; i += 2) {
+		if (!same(ka[i + 1], b[ka[i]])) return false;
+	}
+	return true;
+}
+
+function throws(func) {
+	try {
+		func();
+	} catch (e) {
+		return e.message;
+	}
+	return "";
+}
+
+(function() {
+	var plugin = System.getArgument("-scnplugin");
+	try {
+		Plugins.link(plugin);
+	} catch (e) {
+		report("FAIL the plugin doesn't link: " + plugin + ": " + e.message);
+		System.exit(2);
+	}
+	check(typeof global.SCNFile == "Object", "SCNFile is defined");
+
+	var value = %[
+		zero: 0, one: 1, negative: -123456789012, largest: 9223372036854775807, smallest: -9223372036854775807 - 1,
+		half: 1.5, tenth: 0.1, negzero: -0.0,
+		text: "日本語のテキスト and English", empty: "", emoji: "🎉",
+		nothing: void,
+		bytes: <% 00 01 7f 80 ff %>, nobytes: <% %>,
+		list: [ 1, "x", [ 2, [ 3 ] ], %[ k: "v" ], void, 2.5 ],
+		emptylist: [], emptydict: %[],
+		"名前" => "a name in Japanese", "*cond" => "a name with a star",
+		nested: %[ deep: %[ deeper: [ void, 0, "" ] ] ]
+	];
+
+	// to a file and back
+	var path = System.dataPath + "scntest.scn";
+	SCNFile.save(value, path);
+	check(Storages.isExistentStorage(path), "save writes the file");
+	var file = new SCNFile(path);
+	check(same(file.root, value), "a value saved to a file reads back the same");
+	check(typeof file.root.half == "Real" && typeof file.root.one == "Integer", "Integers stay Integers, Reals Reals");
+	check(file.root.negative === -123456789012 && file.root.largest === 9223372036854775807, "64-bit integers");
+	check(typeof file.root.bytes == "Octet" && file.root.bytes.length == 5 && file.root.bytes[4] == 255, "octets");
+	check(file.root.nothing === void && file.root.list[4] === void, "void");
+	invalidate file;
+
+	// to an octet and back
+	var psb = SCNFile.toOctet(value);
+	check(typeof psb == "Octet" && psb.length > 40, "toOctet gives an octet");
+	check(psb[0] == 0x50 && psb[1] == 0x53 && psb[2] == 0x42 && psb[3] == 0, "it starts with PSB\\0");
+	check(same((new SCNFile(psb)).root, value), "a value made into an octet reads back the same");
+
+	// any value as the root
+	check(same((new SCNFile(SCNFile.toOctet([ 1, 2, 3 ]))).root, [ 1, 2, 3 ]), "an Array as the root");
+	check((new SCNFile(SCNFile.toOctet("just text"))).root === "just text", "a String as the root");
+
+	// what can't be read or written
+	check(throws(function() { new SCNFile(<% 01 02 03 04 05 06 07 08 %>); }) != "", "junk is refused");
+	check(throws(function() { new SCNFile(System.dataPath + "no-such-file.scn"); }) != "", "a missing file is refused");
+	check(throws(function() { SCNFile.toOctet(%[ f: function() {} ]); }) != "", "a function can't be written");
+	check(throws(function() { SCNFile.toOctet(new Date()); }) != "", "a class instance can't be written");
+	var loop = %[];
+	loop.self = loop;
+	check(throws(function() { SCNFile.toOctet(loop); }) != "", "a Dictionary holding itself can't be written");
+
+	// a bigger tree, timed
+	var big = [];
+	for (var i = 0; i < 20000; i++) big.add(%[ id: i, name: "item" + (i % 100), pos: [ i * 0.5, -i ] ]);
+	var t = System.getTickCount();
+	var o = SCNFile.toOctet(big);
+	var t2 = System.getTickCount();
+	var back = (new SCNFile(o)).root;
+	var t3 = System.getTickCount();
+	check(same(back, big), "20000 Dictionaries read back the same");
+	report("20000 Dictionaries: %d bytes, written in %d ms, read in %d ms".sprintf(o.length, t2 - t, t3 - t2));
+
+	report("%d checks, %d failed".sprintf(checks, failures));
+	System.exit(failures ? 1 : 0);
+})();

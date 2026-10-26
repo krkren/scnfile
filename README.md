@@ -8,8 +8,11 @@ an encrypted binary `.scn` file and ships only those, so the readable `.ks` file
 developer's machine. In the game, the scnfile plugin decrypts and reads the `.scn` files, and KAGEX's
 scene player plays them.
 
-**Status: plan.** Nothing is implemented yet. This README sets out three plans: the library, the
-compiler, and the changes KAGEX needs to read from them.
+**Status:** milestones 1 and 2 (below). The compiler lives in KAGEX
+(`template/system/SceneParser.tjs`, with the scene player's changes), since it's TJS that every game
+made from the template carries; this repository has the plugin, which reads and writes plain PSB on
+Linux, and its tests. Encryption, the other platforms and kagex-release's part are still plans. The
+sections below set out the three plans: the library, the compiler, and the changes KAGEX needs.
 
 ## Why
 
@@ -102,10 +105,16 @@ For each script listed in `!scnlist.txt`:
    `env.onStore()` at each save point.
 3. Split the script at labels into scenes, turn choice and jump endings into `nexts`, and collect
    speakers, text and voices.
-4. Save the result, and update `setup/sceneparser/depend.txt` so only changed scripts recompile. At
-   first the compiler writes `<script>.scn.json` with the json plugin, which every kagex build already
-   has; once the library exists it writes `.scn` with `SCNFile.save`, keeping JSON as an option for
-   debugging. Screen states are stored as plain dictionaries, which the player already accepts.
+4. Save the result. Each compiled file holds the key of what it was compiled from (the script, the
+   macros, the options, `envinit.tjs`), so only changed scripts recompile, with no `depend.txt`. The
+   compiler writes `.scn` with `SCNFile.save` when the plugin is there, and `<script>.scn.json` with the
+   json plugin otherwise (or with `format=json` in `parseroption.txt`, for reading it). Screen states are
+   stored as plain dictionaries, which the player already accepts.
+
+As built (KAGEX's `doc/scn.txt` has the details), the compiler reads scripts with a tokenizer of its own
+rather than KAGParserEx, which works out `[if]`, `cond=` and `&` entities while it reads: here those are
+decided when the game plays the scene. The rules are in KAGEX's `doc/scn.txt` rather than a
+`docs/rules.md` here.
 
 **Output** (what KAGEnvPlayer reads):
 
@@ -167,23 +176,41 @@ repository). On each build it:
 
 ## Milestones
 
-1. **Compiler to JSON:** text, names, voices, labels, choices and World tags, written as
-   `.scn.json`; KAGEX's player reads JSON; the sample plays its demos compiled and the smoke test covers
-   it. No plugin needed.
-2. **Library, plain PSB:** read and write every TJS type, with round-trip tests, Linux first; the
+1. **Compiler to JSON** (done, in KAGEX): text, names, voices, labels, choices and World tags, written
+   as `.scn.json`; KAGEX's player reads JSON; the sample plays its demos compiled and the smoke test
+   covers it. No plugin needed.
+2. **Library, plain PSB** (done, Linux): read and write every TJS type, with round-trip tests; the
    compiler switches its output to `.scn`.
 3. **Encryption:** the encrypted container, the key slot and the kagex-release step.
 4. **Every platform:** CI builds for Windows, Linux, macOS, the web, Android and iOS; release packages.
 5. **Features on top:** jump to line, scene replay, dialogue search and rollback in the sample's UI.
 
-## Planned layout
+## Layout
 
 ```
-plugin/     the scnfile plugin (C++)
-compiler/   SceneParser and its defaults (TJS)
-docs/       format, rules, settings
-tests/      round trips, compiled sample scenes
+plugins/scnfile/   the plugin: psb.cpp (the PSB codec, no engine needed) and main.cpp (SCNFile)
+docs/format.md     the PSB layout as the plugin reads and writes it
+tests/             psb_test.cpp (the codec), engine/ and run_engine_test.py (SCNFile in the engine)
 ```
+
+`plugins/` is a plugin folder for the engine build (`TVP_PLUGIN_FOLDERS`, listed after krkrz_dev's
+plugins, since tp_stub resolves ncbind from the first plugin folder).
+
+## Building and testing
+
+The plugin needs a [krkrz_dev](https://github.com/wamsoft/krkrz_dev) checkout for tp_stub and ncbind,
+and zlib to read `mdf` (compressed) files. On Linux:
+
+```
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKRKRZ_DEV_DIR=/path/to/krkrz_dev
+cmake --build build
+ctest --test-dir build                     # the codec's tests
+python3 tests/run_engine_test.py --engine /path/to/krkrz --plugin build/plugins/scnfile/libscnfile.so
+```
+
+`-DSCNFILE_SANITIZE=ON` builds the codec's tests with AddressSanitizer and UBSan, and
+`-DSCNFILE_PLUGIN=OFF` builds only those (no krkrz_dev needed). A game links the plugin as
+`plugin/scnfile.dll` (KAGEX does: `Initialize.tjs`), which the engine finds as `plugin/libscnfile.so`.
 
 ## License
 
