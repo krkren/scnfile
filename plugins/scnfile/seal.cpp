@@ -20,8 +20,11 @@ const uint8_t MAGIC[4] = { 'K', 'S', 'C', 'N' };
 const uint8_t VERSION = 1;
 const uint8_t FLAG_ZLIB = 1;
 
-// "KSCN-KEY-SLOT-v1", each byte inverted
-const uint8_t MARKER_INVERTED[SLOT_MARKER_SIZE] = {
+// "KSCN-KEY-SLOT-v1", each byte inverted. volatile, so slotMarker() reads it when it runs: the
+// compiler folded the inversion of a plain const array into a constant, so the plugin, which
+// compiles this file, carried a second plain marker beside its slot (GCC 13 and the Android NDK's
+// clang), and the packer couldn't tell which one was the slot
+const volatile uint8_t MARKER_INVERTED[SLOT_MARKER_SIZE] = {
 	0xB4, 0xAC, 0xBC, 0xB1, 0xD2, 0xB4, 0xBA, 0xA6, 0xD2, 0xAC, 0xB3, 0xB0, 0xAB, 0xD2, 0x89, 0xCE,
 };
 
