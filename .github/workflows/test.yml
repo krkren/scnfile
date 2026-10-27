@@ -42,7 +42,13 @@ jobs:
           cmake --build build --config Release --parallel
       - name: Tests
         shell: bash
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: |
+          set -o pipefail
+          if ! ctest --test-dir build -C Release --output-on-failure 2>&1 | tee ctest.log; then
+            # the failed checks as annotations too, readable where the job log isn't
+            grep -E "FAIL |Failed|Not Run|Exception|checks, " ctest.log | head -40 | sed 's/^/::error::/'
+            exit 1
+          fi
 
   engine:
     runs-on: ubuntu-24.04
