@@ -79,6 +79,9 @@ What doesn't come back, because the compiled file doesn't hold it:
   gave are given again by `[voice name=N]` where the tags written don't already give them), and the
   original layout of lines.
 - Line numbers and the source key (`hash`), which come from the script and its settings.
+- The World the script starts from (`entry`) and the ones it leaves where it goes (`exits`): the
+  compiler works them out from the other scripts, so a script written back, compiled among them,
+  gets the same ones.
 
 `tests/run_scn2ks_test.py` checks this against KAGEX itself: it compiles KAGEX's sample scripts and
 `tests/scn2ks/` (every line mode) in the engine, turns each back into a script, compiles those, and

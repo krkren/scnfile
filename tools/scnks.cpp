@@ -2562,7 +2562,10 @@ Result decompile(const Value &root, const Options &opt) {
 		out.push_back(std::string("; Line mode at the start: ") + start +
 					  (start == "none" ? "" : " (as parseroption.txt's linemode=" + start + ")"));
 		for (const auto &m : *root.object) {
-			if (m.first != "scenes" && m.first != "version" && m.first != "storage" && m.first != "hash")
+			// entry and exits (KAGEX's format 2) come from the scripts around it: the World the
+			// scripts that go to this one leave, and what this one leaves where it goes
+			if (m.first != "scenes" && m.first != "version" && m.first != "storage" && m.first != "hash" &&
+				m.first != "entry" && m.first != "exits")
 				fileProblems.push_back("the file's " + m.first + " isn't written (" + shortJson(m.second) + ")");
 		}
 	}
