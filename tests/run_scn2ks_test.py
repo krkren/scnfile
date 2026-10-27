@@ -12,6 +12,11 @@ same scenes: the same texts, steps, save points, states and choices. Line number
 key (hash) and the macro name in *mp are left out of the comparison: a script written back
 can't keep them. scn2ks must also report nothing it couldn't write exactly.
 
+When the sample is in more than one language (KAGEX's doc/scn.txt, "Languages"), each script's
+translations (data/lang/<code>/scenario/) are written back from the first compile too
+(scn2ks --lang=<code>) and put in place of the sample's, and a third compile must hold the same
+scenes again.
+
 With --plugin (the scnfile plugin), the scripts are compiled once more to .scn, and scn2ks must
 write the same scripts from those as from the JSON."""
 
@@ -122,9 +127,10 @@ def diff(a, b, path="", out=None, limit=8):
     return out
 
 
-def scn2ks(tool, src, dst):
-    """Runs scn2ks; returns its report and whether it wrote the script exactly"""
-    p = subprocess.run([tool, src, dst], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+def scn2ks(tool, src, dst, lang=None):
+    """Runs scn2ks (in a language: a translation); returns its report and whether it wrote the
+    script exactly"""
+    p = subprocess.run([tool] + (["--lang=" + lang] if lang else []) + [src, dst], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     report = p.stdout.decode("utf-8", "replace")
     return report, p.returncode == 0 and "don't compile back exactly" not in report
 
@@ -216,6 +222,38 @@ def main():
             else:
                 n = sum(len(s.get("texts", [])) for s in again["scenes"])
                 print("ok   %s (%d scenes, %d texts)" % (name, len(again["scenes"]), n))
+
+        # the translations, written back from the first compile in place of the sample's
+        translations = []
+        for name in listed:
+            with open(os.path.join(first, name + ".scn.json"), encoding="utf-8-sig") as f:
+                codes = json.load(f).get("languages") or []
+            for code in codes:
+                path = os.path.join(game, "data", "lang", code, "scenario", name)
+                if os.path.exists(path):
+                    translations.append((name, code, path))
+        if translations:
+            for name, code, path in translations:
+                report, exact = scn2ks(args.scn2ks, os.path.join(first, name + ".scn.json"), path, code)
+                if not exact:
+                    failures += 1
+                    print("FAIL %s in %s: scn2ks says:\n%s" % (name, code, report))
+            summary, warnings3 = compile_all(game, args.engine, args.timeout, "json")
+            print("compile with the translations written back:", summary)
+            if len(warnings3) != len(warnings):
+                failures += 1
+                print("FAIL with the translations written back the scripts compile with %d warnings, the originals with %d"
+                      % (len(warnings3), len(warnings)))
+                for w in warnings3:
+                    print("  compiler warning:", w)
+            for name in sorted(set(t[0] for t in translations)):
+                with open(os.path.join(scenario, name + ".scn.json"), encoding="utf-8-sig") as f:
+                    d = diff(originals[name], normal(json.load(f)))
+                if d:
+                    failures += 1
+                    print("FAIL %s: the round trip of its translations differs:\n  %s" % (name, "\n  ".join(d)))
+                else:
+                    print("ok   %s in %s" % (name, ", ".join(c for n, c, _ in translations if n == name)))
 
         if args.plugin:
             # the original scripts again, compiled to .scn: the same scripts come out

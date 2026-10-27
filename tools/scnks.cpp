@@ -1355,6 +1355,7 @@ public:
 	Sink sink;
 	Model model;
 	const Options &opt;
+	size_t lang = 0; // the language written (its entry in a multi-language file; 0: the source)
 	std::vector<std::string> &notes;
 	std::vector<std::string> sceneNotes;
 	std::string where;
@@ -2150,9 +2151,17 @@ public:
 			std::sort(members.begin(), members.end(), [&](const auto &a, const auto &b) {
 				return rank(a.first) != rank(b.first) ? rank(a.first) < rank(b.first) : a.first < b.first;
 			});
+			// a game in more than one language: the choice in each (language), the source
+			// language's first (null: its text)
+			const Value *langs = member(n, "language");
+			const Value *ltext = nullptr;
+			if (lang > 0 && isList(langs) && lang < langs->list->size()) {
+				const Value *t = member(&(*langs->list)[lang], "text");
+				if (isString(t)) ltext = t;
+			}
 			for (const auto &m : members) {
-				if (m.first == "type") continue;
-				std::string v = scalarText(m.second);
+				if (m.first == "type" || m.first == "language") continue;
+				std::string v = scalarText(m.first == "text" && ltext ? *ltext : m.second);
 				if (m.first == "eval") v = stripParens(v);
 				if (!validAttrName(m.first)) {
 					note("a choice's attribute " + m.first + " can't be written");
@@ -2177,7 +2186,7 @@ public:
 // ------------------------------------------------------------------------
 // Reading the file
 
-Event textEvent(const Value &t, int id, std::vector<std::string> &problems) {
+Event textEvent(const Value &t, int id, size_t lang, std::vector<std::string> &problems) {
 	Event e;
 	e.isText = true;
 	e.id = id;
@@ -2192,6 +2201,21 @@ Event textEvent(const Value &t, int id, std::vector<std::string> &problems) {
 	const Value *text = at(2);
 	const Value *voice = at(3);
 	const Value *flag = at(4);
+	if (isList(disp)) {
+		// a game in more than one language (Wamsoft's layout, KAGEX's doc/scn.txt "Languages"):
+		// [name, [entry...], voice, flag, state], an entry a language, the source language's
+		// first: [display name, text, length, speech text, search text]
+		const auto &langs = *disp->list;
+		const Value *entry = lang < langs.size() ? &langs[lang] : nullptr;
+		if (!isList(entry)) {
+			problems.push_back("text " + std::to_string(id) + " has no entry for language " + std::to_string(lang) + ": " + shortJson(*disp));
+			entry = !langs.empty() && isList(&langs[0]) ? &langs[0] : nullptr;
+		}
+		disp = entry && entry->list->size() > 0 ? &(*entry->list)[0] : nullptr;
+		text = entry && entry->list->size() > 1 ? &(*entry->list)[1] : nullptr;
+		voice = at(2);
+		flag = at(3);
+	}
 	if (isString(disp)) e.disp = disp->s;
 	else if (!isNull(disp)) problems.push_back("text " + std::to_string(id) + "'s display name isn't a string: " + shortJson(*disp));
 	if (isString(text)) e.text = text->s;
@@ -2492,6 +2516,22 @@ Result decompile(const Value &root, const Options &opt) {
 	const Value *scenesV = member(&root, "scenes");
 	if (!isList(scenesV)) throw Error("not a compiled scenario: it has no scenes");
 
+	// a game in more than one language: languages has the codes of the languages after the
+	// one the script is written in (entry 0), and the script is written in opt.language
+	const Value *langsV = member(&root, "languages");
+	if (isList(langsV))
+		for (const Value &l : *langsV->list) res.languages.push_back(isString(&l) ? l.s : "");
+	size_t lang = 0;
+	if (!opt.language.empty()) {
+		for (size_t i = 0; i < res.languages.size() && lang == 0; i++)
+			if (res.languages[i] == opt.language) lang = i + 1;
+		if (lang == 0) {
+			std::string have;
+			for (const auto &l : res.languages) have += (have.empty() ? "" : ", ") + l;
+			throw Error("it has no language " + opt.language + (have.empty() ? " (it's in one language)" : " (it has " + have + ")"));
+		}
+	}
+
 	// the scenes, and what each holds
 	std::vector<TScene> scenes;
 	std::vector<std::string> fileProblems;
@@ -2505,6 +2545,11 @@ Result decompile(const Value &root, const Options &opt) {
 		const Value *label = member(&s, "label");
 		const Value *title = member(&s, "title");
 		sc.label = isString(label) ? label->s : "";
+		if (isList(title) && !title->list->empty()) {
+			// one a language, the source language's first
+			const Value *t = lang < title->list->size() ? &(*title->list)[lang] : &(*title->list)[0];
+			title = isString(t) ? t : &(*title->list)[0];
+		}
 		sc.title = isString(title) ? title->s : "";
 		sc.texts = member(&s, "texts");
 		sc.nexts = member(&s, "nexts");
@@ -2518,7 +2563,7 @@ Result decompile(const Value &root, const Options &opt) {
 					std::vector<std::string> problems;
 					Event e;
 					if (isList(sc.texts) && id >= 1 && size_t(id) <= sc.texts->list->size()) {
-						e = textEvent((*sc.texts->list)[size_t(id - 1)], id, problems);
+						e = textEvent((*sc.texts->list)[size_t(id - 1)], id, lang, problems);
 					} else {
 						problems.push_back("text " + std::to_string(id) + " isn't in the scene");
 						e.isText = true;
@@ -2548,6 +2593,7 @@ Result decompile(const Value &root, const Options &opt) {
 
 	std::vector<std::string> notes;
 	Emitter em(opt, notes);
+	em.lang = lang;
 	em.model.globalIgnoreCR = opt.ignoreCR;
 	em.model.setLineMode(start);
 	em.model.setCrAfterName(opt.crAfterName ? OStr("true") : std::nullopt);
@@ -2563,9 +2609,10 @@ Result decompile(const Value &root, const Options &opt) {
 					  (start == "none" ? "" : " (as parseroption.txt's linemode=" + start + ")"));
 		for (const auto &m : *root.object) {
 			// entry and exits (KAGEX's format 2) come from the scripts around it: the World the
-			// scripts that go to this one leave, and what this one leaves where it goes
+			// scripts that go to this one leave, and what this one leaves where it goes; languages
+			// (format 3) from the game's language list and its translations
 			if (m.first != "scenes" && m.first != "version" && m.first != "storage" && m.first != "hash" &&
-				m.first != "entry" && m.first != "exits")
+				m.first != "entry" && m.first != "exits" && m.first != "languages")
 				fileProblems.push_back("the file's " + m.first + " isn't written (" + shortJson(m.second) + ")");
 		}
 	}

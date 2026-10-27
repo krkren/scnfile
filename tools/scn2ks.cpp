@@ -13,6 +13,9 @@
 //   --craftername     as parseroption.txt's craftername=true
 //   --ignorecr=no     the game's global.ignoreCR is false (line mode none only)
 //   --no-bom          no UTF-8 BOM at the start
+//   --lang=CODE       in a file of a game in more than one language, write that language's
+//                     translation of the script (KAGEX's lang/CODE/scenario/<script>) rather
+//                     than the script; OUT defaults to IN's name with .CODE.ks (char.ja.ks)
 //   -q                don't list what doesn't compile back exactly
 //
 // What the script can't say exactly (a text a line mode can't make, a step that isn't a tag)
@@ -51,16 +54,17 @@ bool endsWith(const std::string &s, const std::string &end) {
 	return s.size() >= end.size() && s.compare(s.size() - end.size(), end.size(), end) == 0;
 }
 
-// char.ks.scn.json, char.ks.scn: char.ks; other.json: other.ks
-std::string outName(std::string in) {
+// char.ks.scn.json, char.ks.scn: char.ks; other.json: other.ks. With a language, char.ja.ks
+std::string outName(std::string in, const std::string &lang) {
 	if (endsWith(in, ".json")) in.resize(in.size() - 5);
 	if (endsWith(in, ".scn")) in.resize(in.size() - 4);
-	return endsWith(in, ".ks") ? in : in + ".ks";
+	if (endsWith(in, ".ks")) in.resize(in.size() - 3);
+	return in + (lang.empty() ? "" : "." + lang) + ".ks";
 }
 
 int usage() {
 	std::fprintf(stderr,
-				 "usage: scn2ks [--linemode=MODE] [--craftername] [--ignorecr=no] [--no-bom] [-q] IN [OUT.ks]\n"
+				 "usage: scn2ks [--linemode=MODE] [--craftername] [--ignorecr=no] [--no-bom] [--lang=CODE] [-q] IN [OUT.ks]\n"
 				 "       IN: a compiled scenario's JSON (.scn.json), or a plain .scn\n");
 	return 2;
 }
@@ -77,6 +81,7 @@ int main(int argc, char **argv) {
 		else if (a == "--craftername") opt.crAfterName = true;
 		else if (a == "--no-bom") opt.bom = false;
 		else if (a.rfind("--linemode=", 0) == 0) opt.lineMode = a.substr(11);
+		else if (a.rfind("--lang=", 0) == 0) opt.language = a.substr(7);
 		else if (a.rfind("--ignorecr=", 0) == 0) opt.ignoreCR = a.substr(11) != "no" && a.substr(11) != "false" && a.substr(11) != "0";
 		else if (a == "-h" || a == "--help") return usage();
 		else if (!a.empty() && a[0] == '-') {
@@ -114,12 +119,16 @@ int main(int argc, char **argv) {
 		size_t slash = name.find_last_of("/\\");
 		opt.source = slash == std::string::npos ? name : name.substr(slash + 1);
 		scnks::Result r = scnks::decompile(root, opt);
-		std::string out = files.size() == 2 ? files[1] : outName(files[0]);
+		std::string out = files.size() == 2 ? files[1] : outName(files[0], opt.language);
 		if (out == files[0]) throw std::runtime_error("won't write over " + files[0]);
 		writeFile(out, r.ks);
 		if (!quiet) {
-			std::fprintf(stderr, "%s: %d scenes, %d texts, line mode %s at the start -> %s\n", files[0].c_str(), r.scenes, r.texts,
-						 r.startMode.c_str(), out.c_str());
+			std::string langs;
+			for (const auto &l : r.languages) langs += (langs.empty() ? "" : ", ") + l;
+			std::fprintf(stderr, "%s: %d scenes, %d texts, line mode %s at the start%s -> %s\n", files[0].c_str(), r.scenes, r.texts,
+						 r.startMode.c_str(),
+						 langs.empty() ? "" : (" (other languages: " + langs + (opt.language.empty() ? "" : "; written in " + opt.language) + ")").c_str(),
+						 out.c_str());
 			if (!r.notes.empty()) {
 				std::fprintf(stderr, "%zu things don't compile back exactly (marked \"; scn2ks:\" in the script):\n", r.notes.size());
 				for (const auto &n : r.notes) std::fprintf(stderr, "  %s\n", n.c_str());

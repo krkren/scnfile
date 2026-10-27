@@ -147,11 +147,64 @@ static void testNotes() {
 	CHECK(threw);
 }
 
+// A game in more than one language: an entry a language for each text (Wamsoft's layout,
+// KAGEX's doc/scn.txt "Languages"), each choice's language and the titles as lists
+static const char *langScene = R"json({
+ "storage": "hand.ks", "languages": ["ja"],
+ "scenes": [{
+  "label": "*start", "title": ["Start", "スタート"],
+  "texts": [
+   ["ai", [[null, "Hello.", 6, "Hello.", "Hello."], [null, "こんにちは。", 6, "こんにちは。", "こんにちは。"]],
+    [{"name": "ai", "voice": 3}], 0, {}],
+   ["ai", [["???", "Who?", 4, "Who?", "Who?"], ["？？？", "[だれ]誰？", 2, "だれ？", "誰？"]], null, 0, 1]
+  ],
+  "lines": [[0, {}, 1, null, 0, 0, null], ["linemode", 0, "mode", "page"], ["ai", 0, "voice", "3"], 1,
+   [1, 1, 2, null, 3, 0, null], 2, [2, 2, null, null, 4, 0, null]],
+  "nexts": [{"type": 1, "text": "Go", "target": "*start",
+             "language": [null, {"text": "行く", "speechtext": "行く", "searchtext": "行く", "textlength": 2}]}]
+ }]
+})json";
+
+static void testLanguages() {
+	Value tree = scnks::fromJson(langScene);
+	scnks::Result en = scnks::decompile(tree);
+	CHECK(en.notes.empty());
+	CHECK(en.languages.size() == 1 && en.languages[0] == "ja");
+	CHECK(en.ks.find("*start|Start\n") != std::string::npos);
+	CHECK(en.ks.find("【ai】Hello.\n") != std::string::npos);
+	CHECK(en.ks.find("【ai/???】Who?\n") != std::string::npos);
+	CHECK(en.ks.find("[seladd text=Go target=*start]") != std::string::npos);
+	CHECK(en.ks.find("language") == std::string::npos);
+	if (!en.notes.empty() || en.ks.find("Who?") == std::string::npos) std::printf("%s", en.ks.c_str());
+
+	scnks::Options o;
+	o.language = "ja";
+	scnks::Result ja = scnks::decompile(tree, o);
+	CHECK(ja.notes.empty());
+	CHECK(ja.ks.find("*start|スタート\n") != std::string::npos);
+	CHECK(ja.ks.find("[ai voice=3]") != std::string::npos);
+	CHECK(ja.ks.find("【ai】こんにちは。\n") != std::string::npos);
+	CHECK(ja.ks.find("【ai/？？？】[ruby text=だれ]誰？\n") != std::string::npos);
+	CHECK(ja.ks.find("[seladd text=行く target=*start]") != std::string::npos);
+	if (!ja.notes.empty() || ja.ks.find("こんにちは") == std::string::npos) std::printf("%s", ja.ks.c_str());
+
+	// a language the file doesn't have
+	bool threw = false;
+	try {
+		o.language = "fr";
+		scnks::decompile(tree, o);
+	} catch (const scnks::Error &) {
+		threw = true;
+	}
+	CHECK(threw);
+}
+
 int main() {
 	testJson();
 	testPage();
 	testVn();
 	testNotes();
+	testLanguages();
 	std::printf("%d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

@@ -8,6 +8,11 @@
 // in force (【name】, [l], [p], [r], ruby), the steps as tags, [if] blocks, [iscript] blocks,
 // jumps and choices.
 //
+// A game in more than one language has every language's texts, display names, choices and
+// titles in its compiled files (Wamsoft's layout; KAGEX's doc/scn.txt, "Languages"): the script
+// is written in the one Options::language names, and comes out as that language's translation
+// of the script (what KAGEX compiles from lang/<code>/scenario/<script>).
+//
 // The compiler's own text rules are modelled here (the line modes, names, voices, the waits
 // it adds at line ends), and each scene is checked against that model as it's written: what
 // can't be written so that it compiles back the same is reported (Result::notes) and marked in
@@ -37,6 +42,9 @@ struct Options {
 	bool bom = true;
 	// The file's name, for the comment at the top
 	std::string source;
+	// In a file with more than one language, the one to write: one of its languages' codes
+	// (Result::languages), or empty for the one the script is written in
+	std::string language;
 };
 
 struct Result {
@@ -45,6 +53,7 @@ struct Result {
 	std::string startMode;          // the line mode it was written for at the start
 	int scenes = 0;
 	int texts = 0;
+	std::vector<std::string> languages; // the file's languages after its own (none: one)
 };
 
 // Raised for a tree that isn't a compiled scenario

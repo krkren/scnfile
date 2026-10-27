@@ -58,7 +58,14 @@ plain `.scn` holds the same tree and is read too; an encrypted one isn't.
 ```
 scn2ks char.ks.scn.json              # writes char.ks
 scn2ks --linemode=vn in.json out.ks
+scn2ks --lang=ja char.ks.scn         # writes char.ja.ks, the Japanese translation
 ```
+
+A game in more than one language has every language in each compiled file, as Wamsoft's
+multi-language games do (KAGEX's `doc/scn.txt`, "Languages": `languages` at the top, and for each
+text a list of `[display name, text, length, speech text, search text]`, one a language, each
+choice's `language` and each title a list). scn2ks writes the script in the language it's written in,
+or with `--lang` one of the others: the translation KAGEX compiles from `lang/<code>/scenario/`.
 
 It writes the texts the way the line mode in force puts messages together (`【name/display】`, line
 breaks, empty lines, `[l]`, `[p]`, `[r]`, `[ruby]`), the steps as tags, `[if]` blocks, `[iscript]`
@@ -85,7 +92,7 @@ What doesn't come back, because the compiled file doesn't hold it:
 
 `tests/run_scn2ks_test.py` checks this against KAGEX itself: it compiles KAGEX's sample scripts and
 `tests/scn2ks/` (every line mode) in the engine, turns each back into a script, compiles those, and
-compares the two compiles.
+compares the two compiles; the sample's translations are written back and compiled again too.
 
 ## TJS API
 
