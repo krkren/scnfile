@@ -61,9 +61,15 @@ static void testRoundTrip() {
 			CHECK(s.find("of the scene") == std::string::npos && s.find("PSB") == std::string::npos);
 		}
 	}
-	// compressed is smaller for text
 	std::vector<uint8_t> psb = samplePsb(2000);
+#ifdef SCNFILE_HAVE_ZLIB
+	// compressed is smaller for text
 	CHECK(scnseal::seal(psb, key, true).size() < scnseal::seal(psb, key, false).size() / 2);
+#else
+	// without zlib nothing is compressed
+	std::printf("(no zlib: files are written uncompressed)\n");
+	CHECK(scnseal::seal(psb, key, true) == scnseal::seal(psb, key, false));
+#endif
 }
 
 static void testDeterministic() {
@@ -112,7 +118,11 @@ static void testFormatFields() {
 	CHECK(sealed[4] == 1 && sealed[5] == 0 && sealed[6] == 0 && sealed[7] == 0);
 	CHECK(uint32_t(sealed[8] | (sealed[9] << 8) | (sealed[10] << 16) | (sealed[11] << 24)) == psb.size());
 	CHECK(sealed.size() == scnseal::HEADER_SIZE + psb.size() + scnseal::TAG_SIZE);
+#ifdef SCNFILE_HAVE_ZLIB
 	CHECK(scnseal::seal(psb, key, true)[5] == 1);
+#else
+	CHECK(scnseal::seal(psb, key, true)[5] == 0);
+#endif
 	// a later version, or flags this build doesn't know, are refused
 	std::vector<uint8_t> v2 = sealed;
 	v2[4] = 2;
