@@ -146,6 +146,10 @@ python3 tests/run_scn2ks_test.py --engine /path/to/krkrz --scn2ks build/scn2ks -
     --plugin build/plugins/scnfile/libscnfile.so
 ```
 
+`.github/workflows/test.yml` runs all of these on every push: the tests above on Linux (also with
+the sanitizers), macOS and Windows, and the plugin in the Linux engine of the newest
+[krkren/kagex](https://github.com/krkren/kagex) release, with that repository's sample for scn2ks.
+
 `-DSCNFILE_SANITIZE=ON` builds the tests with AddressSanitizer and UBSan, and
 `-DSCNFILE_PLUGIN=OFF` builds only them, `scnseal` and `scn2ks` (no krkrz_dev needed). A game links the plugin as
 `plugin/scnfile.dll` (KAGEX does, in `Initialize.tjs`), which the engine finds as

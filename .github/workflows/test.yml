@@ -1,0 +1,87 @@
+# scnfile's tests on every push.
+#
+# - unit: the PSB codec, the encryption and scn2ks's writer (psb_test, seal_test, scnks_test),
+#   without the plugin, on Linux (also with AddressSanitizer and UBSan), macOS and Windows.
+# - engine: the plugin, built against krkrz_dev's tp_stub and ncbind, in a real engine: the
+#   Linux engine of the newest krkren/kagex release that has one. tests/run_engine_test.py
+#   (values to .scn and back, keys written in by scnseal) and tests/run_scn2ks_test.py (KAGEX's
+#   compiler, round trips through scn2ks, from JSON and from .scn).
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # the krkrz_dev commit kagex's releases build against (its tp_stub and ncbind)
+  KRKRZ_DEV_SHA: 21d20e9745e13c9ffe68ae2eb012548afe73aaa8
+
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, name: linux, sanitize: "OFF" }
+          - { os: ubuntu-24.04, name: linux-sanitizers, sanitize: "ON" }
+          - { os: macos-15, name: macos, sanitize: "OFF" }
+          - { os: windows-2022, name: windows, sanitize: "OFF" }
+    name: unit (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build without the plugin
+        shell: bash
+        run: |
+          cmake -S . -B build -DSCNFILE_PLUGIN=OFF -DSCNFILE_SANITIZE=${{ matrix.sanitize }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build build --config Release --parallel
+      - name: Tests
+        shell: bash
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: scnfile
+      - uses: actions/checkout@v4
+        with:
+          repository: krkren/kagex
+          path: kagex
+      - name: tp_stub and ncbind from krkrz_dev
+        run: |
+          git init -q krkrz_dev
+          git -C krkrz_dev remote add origin https://github.com/wamsoft/krkrz_dev.git
+          git -C krkrz_dev fetch -q --depth 1 origin "$KRKRZ_DEV_SHA"
+          git -C krkrz_dev checkout -q FETCH_HEAD
+          git -C krkrz_dev submodule update -q --init --depth 1 src/plugins/tp_stub src/plugins/ncbind
+      - name: Build the plugin, scnseal and scn2ks
+        run: |
+          cmake -S scnfile -B build -DCMAKE_BUILD_TYPE=Release -DKRKRZ_DEV_DIR="$PWD/krkrz_dev" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build build --parallel
+          ls build/plugins/scnfile
+      - name: The libraries the engine loads
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri libgomp1 fontconfig > /dev/null
+      - name: The engine of the newest kagex release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # kagex's releases are all pre-releases, so there's no "latest" to ask for
+          tag=$(gh api repos/krkren/kagex/releases --jq '[.[] | select(.draft | not) | select(any(.assets[]; .name == "kagex_sdl3_linux_release.zip"))][0].tag_name')
+          echo "Engine from kagex $tag"
+          gh release download "$tag" --repo krkren/kagex --pattern kagex_sdl3_linux_release.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/kagex_sdl3_linux_release.zip" -d engine
+          chmod +x engine/krkrz
+      - name: The plugin in the engine
+        run: python3 scnfile/tests/run_engine_test.py --engine engine/krkrz --plugin build/plugins/scnfile/libscnfile.so --scnseal build/scnseal
+      - name: scn2ks round trips through KAGEX's compiler
+        run: python3 scnfile/tests/run_scn2ks_test.py --engine engine/krkrz --scn2ks build/scn2ks --kagex kagex --plugin build/plugins/scnfile/libscnfile.so
